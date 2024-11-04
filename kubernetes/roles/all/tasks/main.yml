@@ -1,0 +1,127 @@
+---
+- name: Установить часовой пояс на Europe/Moscow
+  timezone:
+    name: Europe/Moscow
+
+- name: Отключить SWAP
+  shell: |
+    swapoff -a
+
+- name: Отключить SWAP в fstab
+  replace:
+    path: /etc/fstab
+    regexp: '^([^#].*?\sswap\s+sw\s+.*)$'
+    replace: '# \1'
+
+- name: Создание файла hosts из шаблона
+  template:
+    src: templates/hosts.j2
+    dest: /etc/hosts
+    owner: root
+    group: root
+    mode: 0644
+    backup: yes
+
+- name: Создание файла containerd.conf из шаблона
+  template:
+    src: templates/containerd.conf.j2
+    dest: /etc/modules-load.d/containerd.conf
+    owner: root
+    group: root
+    mode: 0644
+    backup: yes
+
+- name: Загрузка необходимых модулей ядра
+  modprobe:
+    name: "{{ item }}"
+    state: present
+  with_items: 
+    - overlay
+    - br_netfilter
+
+- name: Установка параметров ядра необходимых для Kubernetes
+  sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: yes
+  with_dict: '{{ sysctl_config }}'
+
+- name: Импорт GPG-ключа Docker
+  get_url:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    dest: /etc/apt/keyrings/docker-apt-keyring.asc
+    mode: "0644"
+    force: true
+    
+- name: Установка репозитория Docker
+  apt_repository:
+    repo: "{{ DOCKER_REPO }}"
+    state: present
+    update_cache: yes
+
+- name: Импорт GPG-ключа Kubernetes
+  get_url:
+    url: "{{ K8S_URL }}Release.key"
+    dest: /etc/apt/keyrings/kubernetes-apt-keyring.asc
+    mode: "0644"
+    force: true
+
+- name: Установка репозитория Kubernetes
+  apt_repository:
+    repo: "{{ K8S_REPO }}"
+    state: present
+    update_cache: yes
+
+- name: Обновление списка пакетов
+  apt:
+    update_cache: yes   
+
+- name: Установка зависимостей
+  apt:
+    pkg: "{{ required_packages }}"
+
+- name: Установка containerd
+  apt:
+    name: containerd.io
+    state: present
+
+- name: Убедимся что директория /etc/containerd существует
+  file:
+    path: /etc/containerd
+    state: directory
+
+- name: Герация конфигурации по умолчанию для containerd
+  command: containerd config default
+  register: containerd_config
+
+- name: Сохранение кофигурации containerd
+  copy:
+    content: "{{ containerd_config.stdout }}"
+    dest: /etc/containerd/config.toml
+
+- name: Обновление флага параметра SystemdCgroup в конфигурации containerd
+  replace:
+    path: /etc/containerd/config.toml
+    regexp: '^(.*SystemdCgroup\s*=\s*)false'
+    replace: '\1true'
+
+- name: Обновление версии образа registry.k8s.io/pause в конфигурации containerd
+  replace:
+    path: /etc/containerd/config.toml
+    regexp: 'sandbox_image = "registry.k8s.io/pause:.*?"'
+    replace: 'sandbox_image = "registry.k8s.io/pause:{{ PAUSE_VERSION }}"'
+
+- name: Запуск службы containerd и её добавлени в автозагрузку
+  systemd:
+    name: containerd
+    state: restarted
+    enabled: yes
+    daemon-reload: yes
+
+- name: Установка kubelet и kubeadm
+  apt:
+     name: 
+      - kubeadm
+      - kubelet
+     state: present

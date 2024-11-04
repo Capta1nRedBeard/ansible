@@ -1,0 +1,6 @@
+---
+USER: user
+GROUP: user
+HOME_DIR: /home/user
+
+CONTROL_NODE_CONF_DIR: /home/user/.kube/
