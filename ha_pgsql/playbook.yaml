@@ -1,0 +1,16 @@
+---
+- name: Развертывание K8s masters
+  hosts: masters
+  remote_user: ansible
+  become: true
+  roles:
+   - all
+   - masters
+
+- name: Развертывание K8s workers
+  hosts: workers
+  remote_user: ansible
+  become: true
+  roles:
+   - all
+   - workers
